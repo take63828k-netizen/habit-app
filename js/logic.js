@@ -19,6 +19,9 @@
       history: {},
       wallpaper: 'img/wallpaper.jpg',
       brightness: 40,
+      exchanges: [],      // ご褒美の交換履歴 { date, title, cost }（最新200件）
+      lastBackup: null,   // 最後にバックアップを書き出した日
+      createdAt: todayKey(),
     };
   }
 
@@ -50,17 +53,85 @@
   }
 
   // 欠けた項目は初期値で補う。型が違う・壊れているときは黙って捨てず error を返す
-  function normalize(obj) {
-    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return { data: null, error: '保存データの形が不正です' };
-    const d = defaults();
-    if ('goals' in obj && !Array.isArray(obj.goals)) return { data: null, error: 'goals が配列ではありません' };
-    if ('rewards' in obj && !Array.isArray(obj.rewards)) return { data: null, error: 'rewards が配列ではありません' };
-    if ('history' in obj && (obj.history === null || typeof obj.history !== 'object' || Array.isArray(obj.history))) {
-      return { data: null, error: 'history の形が不正です' };
+  const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
+  const isNonEmptyStr = (v) => typeof v === 'string' && v.trim().length > 0;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const MAX_EXCHANGES = 200;
+
+  // 壁紙に使ってよい文字列だけ返す。使えなければ null
+  // https のURL、同梱の img/ 配下、data:image の3種類。引用符・括弧・空白・バックスラッシュは拒否
+  function safeWallpaper(url) {
+    if (typeof url !== 'string') return null;
+    if (/^https:\/\/[^\s'"()\\]+$/.test(url)) return url;
+    if (/^img\/[A-Za-z0-9._\-\/]+$/.test(url)) return url;
+    if (/^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+\/=]+$/.test(url)) return url;
+    return null;
+  }
+
+  // 中身の型と範囲を検査する。問題があれば最初の1件の説明（項目名を含む）を返し、なければ null
+  function validate(d) {
+    if (!isInt(d.points) || d.points < 0) return 'points が0以上の整数ではありません';
+    if (!Array.isArray(d.goals)) return 'goals が配列ではありません';
+    const gids = new Set();
+    for (const g of d.goals) {
+      if (!isObj(g) || typeof g.id !== 'number' || !isNonEmptyStr(g.title)) return 'goals に不正な行があります';
+      if (gids.has(g.id)) return 'goals の id が重複しています';
+      gids.add(g.id);
     }
-    const out = Object.assign({}, d, obj);
-    if (out.goals.length === 0) out.goals = d.goals;
+    if (!Array.isArray(d.rewards)) return 'rewards が配列ではありません';
+    const rids = new Set();
+    for (const r of d.rewards) {
+      if (!isObj(r) || typeof r.id !== 'number' || !isNonEmptyStr(r.title) || !isInt(r.cost) || r.cost <= 0) return 'rewards に不正な行があります';
+      if (rids.has(r.id)) return 'rewards の id が重複しています';
+      rids.add(r.id);
+    }
+    if (!isObj(d.history)) return 'history の形が不正です';
+    for (const k of Object.keys(d.history)) {
+      const h = d.history[k];
+      if (!DATE_RE.test(k)) return 'history に日付でないキーがあります';
+      if (!isObj(h) || typeof h.totalScore !== 'number' || !(h.totalScore >= 0 && h.totalScore <= 100) || !isObj(h.scores)) {
+        return 'history の ' + k + ' の中身が不正です';
+      }
+    }
+    if (typeof d.brightness !== 'number' || !(d.brightness >= 0 && d.brightness <= 85)) return 'brightness が0〜85ではありません';
+    if (safeWallpaper(d.wallpaper) === null) return 'wallpaper の指定が使えない形です';
+    if (!Array.isArray(d.exchanges)) return 'exchanges が配列ではありません';
+    for (const e of d.exchanges) {
+      if (!isObj(e) || !DATE_RE.test(e.date) || !isNonEmptyStr(e.title) || !isInt(e.cost) || e.cost <= 0) return 'exchanges に不正な行があります';
+    }
+    if (d.lastBackup !== null && !DATE_RE.test(d.lastBackup)) return 'lastBackup が日付ではありません';
+    if (!DATE_RE.test(d.createdAt)) return 'createdAt が日付ではありません';
+    return null;
+  }
+
+  function normalize(obj) {
+    if (!isObj(obj)) return { data: null, error: '保存データの形が不正です' };
+    const out = Object.assign({}, defaults(), obj);
+    if (Array.isArray(out.goals) && out.goals.length === 0) out.goals = defaults().goals;
+    const err = validate(out);
+    if (err) return { data: null, error: err };
     return { data: out, error: null };
+  }
+
+  // 交換した結果の新しいデータを返す（元は変えない）
+  function exchangeReward(data, rewardId, today) {
+    const r = data.rewards.find((x) => x.id === rewardId);
+    if (!r) return { data: null, error: 'ご褒美が見つかりません' };
+    if (data.points < r.cost) return { data: null, error: 'ポイントが足りません' };
+    const exchanges = data.exchanges.concat([{ date: today, title: r.title, cost: r.cost }]).slice(-MAX_EXCHANGES);
+    return { data: Object.assign({}, data, { points: data.points - r.cost, exchanges: exchanges }), error: null };
+  }
+
+  function daysBetween(a, b) {
+    const t = (s) => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+    return Math.round((t(b) - t(a)) / 86400000);
+  }
+
+  // 最終バックアップ（無ければ作成日）から14日以上たっていれば true
+  function needsBackupReminder(data, today) {
+    const base = data.lastBackup || data.createdAt;
+    return daysBetween(base, today) >= 14;
   }
 
   function parseSaved(raw) {
@@ -85,6 +156,7 @@
   const api = {
     STORAGE_KEY: STORAGE_KEY, defaults: defaults, todayKey: todayKey, escapeHtml: escapeHtml,
     calcEarnedPoints: calcEarnedPoints, parseSaved: parseSaved, exportData: exportData, importData: importData,
+    safeWallpaper: safeWallpaper, exchangeReward: exchangeReward, needsBackupReminder: needsBackupReminder,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.HabitLogic = api;

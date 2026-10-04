@@ -12,7 +12,16 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
     <script>
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js'); });
+            // 新しい版が有効になったら、再読み込みの案内を出す（初回インストール時は出さない）
+            const hadController = !!navigator.serviceWorker.controller;
+            navigator.serviceWorker.addEventListener('controllerchange', function () {
+                if (hadController) document.getElementById('update-banner').classList.remove('hidden');
+            });
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('./sw.js').then(function (reg) {
+                    window.__swReg = reg;
+                }).catch(function (e) { console.error('Service worker registration failed', e); });
+            });
         }
     </script>
     <!-- Tailwind CSS -->
@@ -52,6 +61,9 @@
             生活習慣改善
         </h1>
         <p id="today-date-display" class="text-sm font-medium text-gray-700 mt-1 drop-shadow-sm"></p>
+        <button id="backup-reminder" onclick="switchView('settings')" class="hidden mt-3 mx-auto bg-amber-100 text-amber-800 border border-amber-300 rounded-xl px-4 py-2 text-xs font-bold">
+            <i class="fa-solid fa-triangle-exclamation"></i> バックアップから2週間以上たっています（設定へ）
+        </button>
     </header>
 
     <main id="view-home" class="flex-1 max-w-md w-full mx-auto px-6 py-4 flex flex-col justify-center items-center relative">
@@ -170,7 +182,8 @@
             <!-- Backup Section -->
             <div class="border-t pt-6 mt-6">
                 <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">バックアップ</h3>
-                <p class="text-xs text-gray-600 mb-3">機種変更やブラウザのデータ削除に備え、ファイルに書き出せます。</p>
+                <p class="text-xs text-gray-600 mb-1">機種変更やブラウザのデータ削除に備え、ファイルに書き出せます。</p>
+                <p class="text-xs text-gray-600 mb-3">最後に書き出した日：<span id="last-backup-display" class="font-bold">なし</span></p>
                 <div class="flex gap-2">
                     <button onclick="exportBackup()" class="flex-1 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors">書き出す</button>
                     <button onclick="document.getElementById('backup-file-input').click()" class="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-xl font-bold text-sm transition-colors">読み込む</button>
@@ -278,6 +291,11 @@
                 <!-- Dynamic reward items injected via JS -->
             </div>
 
+            <div class="mb-6">
+                <h3 class="text-sm font-bold text-gray-700 mb-2">交換の履歴（最新10件）</h3>
+                <ul id="exchange-history-list" class="space-y-1 text-xs text-gray-600"></ul>
+            </div>
+
             <div class="text-center">
                 <button onclick="switchView('home')" class="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-lg shadow-amber-600/30 transition-colors">
                     ホームに戻る
@@ -297,6 +315,11 @@
                 閉じる
             </button>
         </div>
+    </div>
+
+    <div id="update-banner" class="hidden fixed bottom-4 inset-x-4 z-[60] max-w-md mx-auto bg-gray-900 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3">
+        <span class="text-sm">新しい版があります。</span>
+        <button onclick="location.reload()" class="bg-white text-gray-900 px-4 py-2 rounded-xl font-bold text-sm">再読み込み</button>
     </div>
 
     <footer class="w-full py-4 text-center text-xs text-gray-600 drop-shadow-sm">
@@ -323,6 +346,7 @@
             renderShopRewards();
             renderEvaluationForm();
             applyWallpaperAndBrightness();
+            refreshBackupUi();
             if (loadMsg) showModal('保存データについて', loadMsg, 'fa-triangle-exclamation');
             // 保存領域をブラウザに消されにくくする（許可されなくても動く）
             try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
@@ -333,8 +357,17 @@
             if (document.visibilityState === 'visible') {
                 updateDateDisplay();
                 resetEvalStateIfNewDay();
+                refreshBackupUi();
+                // アプリに戻るたびに新しい版が無いか確かめる
+                if (window.__swReg) window.__swReg.update().catch(function () {});
             }
         });
+
+        function refreshBackupUi() {
+            const last = appData.lastBackup;
+            document.getElementById('last-backup-display').innerText = last || 'なし';
+            document.getElementById('backup-reminder').classList.toggle('hidden', !HabitLogic.needsBackupReminder(appData, HabitLogic.todayKey()));
+        }
 
         function resetEvalStateIfNewDay() {
             const today = HabitLogic.todayKey();
@@ -380,6 +413,9 @@
 
         // --- Backup ---
         function exportBackup() {
+            appData.lastBackup = HabitLogic.todayKey();
+            saveToLocalStorage();
+            refreshBackupUi();
             const blob = new Blob([HabitLogic.exportData(appData)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -405,6 +441,7 @@
                 saveToLocalStorage();
                 renderGoalsConfig(); renderRewardsConfig(); renderShopRewards(); renderEvaluationForm();
                 applyWallpaperAndBrightness();
+                refreshBackupUi();
                 showModal('読み込み完了', 'バックアップから復元しました。', 'fa-circle-check');
             };
             reader.readAsText(file);
@@ -441,7 +478,10 @@
         function applyWallpaperAndBrightness() {
             const container = document.getElementById('wallpaper-container');
             const overlay = document.getElementById('wallpaper-overlay');
-            container.style.backgroundImage = `url('${appData.wallpaper}')`;
+            // 保存時に検査済みだが、念のため使える形だけを CSS に渡す
+            const wp = HabitLogic.safeWallpaper(appData.wallpaper);
+            if (wp === null) console.error('Unsafe wallpaper value was not applied');
+            else container.style.backgroundImage = `url("${wp}")`;
             
             const b = appData.brightness / 100;
             overlay.style.backgroundColor = `rgba(255, 255, 255, ${b})`;
@@ -456,6 +496,10 @@
         function updateWallpaperUrl() {
             const url = document.getElementById('wallpaper-url-input').value.trim();
             if (url) {
+                if (HabitLogic.safeWallpaper(url) === null) {
+                    showModal('壁紙変更', '使えないURLです。https:// で始まり、空白や引用符・括弧を含まないものにしてください。', 'fa-triangle-exclamation');
+                    return;
+                }
                 appData.wallpaper = url;
                 applyWallpaperAndBrightness();
                 saveToLocalStorage();
@@ -771,6 +815,12 @@
             const container = document.getElementById('shop-rewards-list');
             container.innerHTML = '';
 
+            const hist = document.getElementById('exchange-history-list');
+            const recent = appData.exchanges.slice(-10).reverse();
+            hist.innerHTML = recent.length === 0
+                ? '<li>まだ交換していません</li>'
+                : recent.map(e => `<li>${esc(e.date)}　${esc(e.title)}（${esc(e.cost)} pt）</li>`).join('');
+
             appData.rewards.forEach(rew => {
                 const canAfford = appData.points >= rew.cost;
                 const div = document.createElement('div');
@@ -792,12 +842,17 @@
 
         function exchangeReward(rewardId) {
             const reward = appData.rewards.find(r => r.id === rewardId);
-            if (reward && appData.points >= reward.cost) {
-                appData.points -= reward.cost;
-                saveToLocalStorage();
-                renderShopRewards();
-                showModal('ご褒美ゲット！', `「${reward.title}」と交換しました！自分にご褒美をあげましょう！`, 'fa-gift');
+            if (!reward) return;
+            if (!confirm(`「${reward.title}」を ${reward.cost} pt で交換しますか？`)) return;
+            const r = HabitLogic.exchangeReward(appData, rewardId, getTodayKey());
+            if (r.error) {
+                showModal('交換できません', r.error, 'fa-triangle-exclamation');
+                return;
             }
+            appData = r.data;
+            saveToLocalStorage();
+            renderShopRewards();
+            showModal('ご褒美ゲット！', `「${reward.title}」と交換しました！自分にご褒美をあげましょう！`, 'fa-gift');
         }
 
         // --- Custom Modal Helper ---

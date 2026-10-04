@@ -167,6 +167,17 @@
                 </div>
             </div>
 
+            <!-- Backup Section -->
+            <div class="border-t pt-6 mt-6">
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">バックアップ</h3>
+                <p class="text-xs text-gray-600 mb-3">機種変更やブラウザのデータ削除に備え、ファイルに書き出せます。</p>
+                <div class="flex gap-2">
+                    <button onclick="exportBackup()" class="flex-1 bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors">書き出す</button>
+                    <button onclick="document.getElementById('backup-file-input').click()" class="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2.5 rounded-xl font-bold text-sm transition-colors">読み込む</button>
+                    <input type="file" id="backup-file-input" accept="application/json,.json" class="hidden" onchange="importBackup(event)">
+                </div>
+            </div>
+
             <div class="mt-8 text-center">
                 <button onclick="switchView('home')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-colors">
                     設定を保存して戻る
@@ -292,54 +303,111 @@
         生活習慣改善アプリ &copy; 2026
     </footer>
 
+    <script src="js/logic.js"></script>
     <script>
-        // Default app state data
-        let appData = {
-            goals: [
-                { id: 1, title: '21:30までに寝る' },
-                { id: 2, title: '勉強を30分する' },
-                { id: 3, title: '朝起きてコップ一杯の水を飲む' }
-            ],
-            rewards: [
-                { id: 1, title: 'お気に入りのケーキを食べる', cost: 5 },
-                { id: 2, title: '好きな映画を1本見る', cost: 8 },
-                { id: 3, title: 'ちょっと豪華なランチ', cost: 12 }
-            ],
-            points: 0,
-            history: {}, // Format: 'YYYY-MM-DD': { scores: {goalId: scoreValue}, totalScore: 85 }
-            wallpaper: 'img/wallpaper.jpg',
-            brightness: 40
-        };
+        const esc = HabitLogic.escapeHtml;
+        // Default app state data. history: 'YYYY-MM-DD': { scores: {goalId: scoreValue}, totalScore: 85 }
+        let appData = HabitLogic.defaults();
 
         let currentEvalState = {}; // Temp store for today's evaluation
+        let evalStateDate = null;  // currentEvalState が作られた日
         let scoreChartInstance = null;
+        let storageBroken = false; // 保存が失敗している間 true
 
         // Initialize App on load
         window.onload = function() {
-            loadFromLocalStorage();
+            const loadMsg = loadFromLocalStorage();
             updateDateDisplay();
             renderGoalsConfig();
             renderRewardsConfig();
             renderShopRewards();
             renderEvaluationForm();
             applyWallpaperAndBrightness();
+            if (loadMsg) showModal('保存データについて', loadMsg, 'fa-triangle-exclamation');
+            // 保存領域をブラウザに消されにくくする（許可されなくても動く）
+            try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
         };
 
-        function loadFromLocalStorage() {
-            const saved = localStorage.getItem('seikatsu_habit_app_data');
-            if (saved) {
-                try {
-                    appData = JSON.parse(saved);
-                } catch (e) {
-                    console.error('Failed to parse saved data', e);
-                }
+        // 日付をまたいだ・アプリへ戻ったときに、日付表示と評価の下書きを今日の分へ直す
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState === 'visible') {
+                updateDateDisplay();
+                resetEvalStateIfNewDay();
+            }
+        });
+
+        function resetEvalStateIfNewDay() {
+            const today = HabitLogic.todayKey();
+            if (evalStateDate !== today) {
+                currentEvalState = {};
+                evalStateDate = today;
+                renderEvaluationForm();
             }
         }
 
+        // 戻り値: 利用者へ知らせる文（なければ null）
+        function loadFromLocalStorage() {
+            let raw = null;
+            try { raw = localStorage.getItem(HabitLogic.STORAGE_KEY); } catch (e) {
+                return 'この端末では保存領域を使えません。入力した内容は閉じると消えます。';
+            }
+            const r = HabitLogic.parseSaved(raw);
+            if (r.error) {
+                // 壊れたデータは上書きせず、別の名前で退避してから初期値で始める
+                const backupKey = HabitLogic.STORAGE_KEY + '_broken_' + Date.now();
+                try { localStorage.setItem(backupKey, raw); } catch (e) {}
+                console.error('Saved data is invalid:', r.error);
+                return '保存データを読めなかったため、初期状態で始めました（' + r.error + '）。元のデータは別の名前で端末に残してあります。';
+            }
+            if (r.data) appData = r.data;
+            return null;
+        }
+
         function saveToLocalStorage() {
-            localStorage.setItem('seikatsu_habit_app_data', JSON.stringify(appData));
+            try {
+                localStorage.setItem(HabitLogic.STORAGE_KEY, JSON.stringify(appData));
+                storageBroken = false;
+            } catch (e) {
+                console.error('Failed to save', e);
+                if (!storageBroken) {
+                    storageBroken = true;
+                    showModal('保存できませんでした', '端末の保存容量が足りないか、保存が許可されていません。壁紙の写真を小さいものにするか、バックアップを書き出してください。', 'fa-triangle-exclamation');
+                }
+            }
             document.getElementById('user-points-display').innerText = appData.points;
             document.getElementById('shop-points-badge').innerText = appData.points;
+        }
+
+        // --- Backup ---
+        function exportBackup() {
+            const blob = new Blob([HabitLogic.exportData(appData)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'seikatsu-habit-backup-' + HabitLogic.todayKey() + '.json';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+        }
+
+        function importBackup(event) {
+            const file = event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const r = HabitLogic.importData(e.target.result);
+                if (r.error) { showModal('読み込めませんでした', r.error, 'fa-triangle-exclamation'); return; }
+                if (!confirm('いまのデータは、バックアップの内容で置き換わります。よろしいですか？')) return;
+                appData = r.data;
+                currentEvalState = {};
+                evalStateDate = null;
+                saveToLocalStorage();
+                renderGoalsConfig(); renderRewardsConfig(); renderShopRewards(); renderEvaluationForm();
+                applyWallpaperAndBrightness();
+                showModal('読み込み完了', 'バックアップから復元しました。', 'fa-circle-check');
+            };
+            reader.readAsText(file);
         }
 
         function updateDateDisplay() {
@@ -390,6 +458,7 @@
             if (url) {
                 appData.wallpaper = url;
                 applyWallpaperAndBrightness();
+                saveToLocalStorage();
                 showModal('壁紙変更', '新しい壁紙を設定しました！', 'fa-image');
             }
         }
@@ -397,19 +466,39 @@
         function handleWallpaperFile(event) {
             const file = event.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    appData.wallpaper = e.target.result;
+                // 保存容量を守るため、長辺1280px・JPEG に縮小してから保存する
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = function() {
+                    const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                    URL.revokeObjectURL(url);
+                    const previous = appData.wallpaper;
+                    appData.wallpaper = canvas.toDataURL('image/jpeg', 0.8);
                     applyWallpaperAndBrightness();
+                    saveToLocalStorage();
+                    if (storageBroken) { // 保存できなければ元の壁紙に戻す
+                        appData.wallpaper = previous;
+                        applyWallpaperAndBrightness();
+                        return;
+                    }
                     showModal('壁紙変更', 'デバイスの写真から壁紙を設定しました！', 'fa-image');
                 };
-                reader.readAsDataURL(file);
+                img.onerror = function() {
+                    URL.revokeObjectURL(url);
+                    showModal('壁紙変更', '画像を読み込めませんでした。', 'fa-triangle-exclamation');
+                };
+                img.src = url;
             }
         }
 
         function updateBrightness(val) {
             appData.brightness = parseInt(val);
             applyWallpaperAndBrightness();
+            saveToLocalStorage();
         }
 
         // --- Goals Configuration ---
@@ -421,7 +510,7 @@
                 div.className = 'flex items-center gap-2 bg-white/60 p-2.5 rounded-xl border border-gray-200';
                 div.innerHTML = `
                     <span class="text-xs font-bold text-gray-500 w-6 text-center">${index + 1}</span>
-                    <input type="text" value="${goal.title}" onchange="updateGoalTitle(${goal.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
+                    <input type="text" value="${esc(goal.title)}" onchange="updateGoalTitle(${goal.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
                     <button onclick="deleteGoal(${goal.id})" class="text-red-500 hover:text-red-700 px-2 py-1 rounded-lg text-sm transition-colors">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
@@ -455,7 +544,10 @@
                 showModal('エラー', '最低1つの目標が必要です。', 'fa-triangle-exclamation');
                 return;
             }
+            const target = appData.goals.find(g => g.id === id);
+            if (!target || !confirm('目標「' + target.title + '」を削除しますか？')) return;
             appData.goals = appData.goals.filter(g => g.id !== id);
+            delete currentEvalState[id];
             renderGoalsConfig();
             saveToLocalStorage();
         }
@@ -468,7 +560,7 @@
                 const div = document.createElement('div');
                 div.className = 'flex items-center gap-2 bg-white/60 p-2.5 rounded-xl border border-gray-200';
                 div.innerHTML = `
-                    <input type="text" value="${rew.title}" onchange="updateRewardTitle(${rew.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
+                    <input type="text" value="${esc(rew.title)}" onchange="updateRewardTitle(${rew.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
                     <input type="number" value="${rew.cost}" min="1" onchange="updateRewardCost(${rew.id}, this.value)" class="w-16 bg-white/80 border border-gray-300 rounded-lg px-2 py-1 text-sm text-center font-bold text-amber-600 focus:outline-none">
                     <span class="text-xs text-gray-500 font-bold">pt</span>
                     <button onclick="deleteReward(${rew.id})" class="text-red-500 hover:text-red-700 px-2 py-1 rounded-lg text-sm transition-colors">
@@ -507,6 +599,8 @@
         }
 
         function deleteReward(id) {
+            const target = appData.rewards.find(r => r.id === id);
+            if (!target || !confirm('ご褒美「' + target.title + '」を削除しますか？')) return;
             appData.rewards = appData.rewards.filter(r => r.id !== id);
             renderRewardsConfig();
             renderShopRewards();
@@ -523,6 +617,7 @@
             container.innerHTML = '';
             
             const todayKey = getTodayKey();
+            if (evalStateDate !== todayKey) { currentEvalState = {}; evalStateDate = todayKey; }
             const existingScores = appData.history[todayKey]?.scores || {};
 
             appData.goals.forEach(goal => {
@@ -534,7 +629,7 @@
                 div.className = 'bg-white/80 p-4 rounded-2xl border border-gray-200 shadow-sm';
                 div.innerHTML = `
                     <h4 class="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
-                        <i class="fa-solid fa-bullseye text-indigo-500"></i> ${goal.title}
+                        <i class="fa-solid fa-bullseye text-indigo-500"></i> ${esc(goal.title)}
                     </h4>
                     <div class="grid grid-cols-3 gap-2">
                         <button type="button" onclick="setGoalScore(${goal.id}, 100, this)" class="eval-btn-${goal.id} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${currentEvalState[goal.id] === 100 ? 'bg-emerald-600 text-white border-emerald-600 shadow-md' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}">
@@ -586,8 +681,7 @@
         }
 
         function getTodayKey() {
-            const d = new Date();
-            return d.toISOString().split('T')[0];
+            return HabitLogic.todayKey();
         }
 
         function saveTodayEvaluation() {
@@ -597,28 +691,13 @@
             // Check if already evaluated today to avoid duplicate point rewarding
             const isFirstEvaluationToday = !appData.history[todayKey];
 
-            appData.history[todayKey] = {
-                scores: { ...currentEvalState },
-                totalScore: finalScore
-            };
+            // 今の目標に残っているものだけを記録する（削除済みの目標を残さない）
+            const scores = {};
+            appData.goals.forEach(g => { scores[g.id] = currentEvalState[g.id] !== undefined ? currentEvalState[g.id] : 100; });
+            appData.history[todayKey] = { scores: scores, totalScore: finalScore };
 
-            // Calculate points earned:
-            // 総合スコアが、最高スコアなら3ポイント、90%以上なら2ポイント、80%以上なら1ポイント
-            let earnedPoints = 0;
-            let existingScoresArray = Object.values(appData.history).map(h => h.totalScore);
-            // remove today's new score for max comparison
-            const pastScores = existingScoresArray.filter((_, idx, arr) => idx < arr.length - 1);
-            const maxPastScore = pastScores.length > 0 ? Math.max(...pastScores) : 0;
-
-            let isNewMax = pastScores.length === 0 || finalScore > maxPastScore;
-
-            if (isNewMax && finalScore > 0) {
-                earnedPoints = 3;
-            } else if (finalScore >= 90) {
-                earnedPoints = 2;
-            } else if (finalScore >= 80) {
-                earnedPoints = 1;
-            }
+            // 獲得ポイント: 過去最高を更新で3pt、90%以上で2pt、80%以上で1pt（今日の記録を除いて比べる）
+            const earnedPoints = HabitLogic.calcEarnedPoints(appData.history, todayKey, finalScore).earned;
 
             if (earnedPoints > 0 && isFirstEvaluationToday) {
                 appData.points += earnedPoints;
@@ -698,7 +777,7 @@
                 div.className = 'bg-white/80 p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between';
                 div.innerHTML = `
                     <div>
-                        <h4 class="font-bold text-gray-800 text-sm mb-1">${rew.title}</h4>
+                        <h4 class="font-bold text-gray-800 text-sm mb-1">${esc(rew.title)}</h4>
                         <span class="text-xs font-bold text-amber-600 flex items-center gap-1">
                             <i class="fa-solid fa-coins"></i> 必要ポイント: ${rew.cost} pt
                         </span>

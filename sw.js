@@ -1,6 +1,6 @@
-const SHELL_CACHE = 'habit-shell-v1'; // index.html などを直したら v2, v3 と上げる
+const SHELL_CACHE = 'habit-shell-v2'; // index.html などを直したら v2, v3 と上げる
 const SHELL = [
-  './', './index.html', './manifest.webmanifest',
+  './', './index.html', './manifest.webmanifest', './js/logic.js',
   './vendor/tailwind.js', './vendor/chart.js', './vendor/fa.css',
   './vendor/webfonts/fa-solid-900.woff2', './vendor/webfonts/fa-regular-400.woff2', './vendor/webfonts/fa-brands-400.woff2',
   './img/wallpaper.jpg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',

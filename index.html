@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生活習慣改善</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="生活習慣">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js'); });
+        }
+    </script>
+    <!-- Tailwind CSS -->
+    <script src="vendor/tailwind.js"></script>
+    <!-- Chart.js for score trend visualization -->
+    <script src="vendor/chart.js"></script>
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="vendor/fa.css">
+    <!-- Google Fonts Inter & Zen Maru Gothic -->
+    <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Zen Maru Gothic', sans-serif;
+            user-select: none;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="relative min-h-screen overflow-x-hidden text-gray-800 flex flex-col justify-between">
+
+    <div id="wallpaper-container" class="fixed inset-0 -z-20 bg-cover bg-center transition-all duration-500" style="background-image: url('img/wallpaper.jpg');"></div>
+    <div id="wallpaper-overlay" class="fixed inset-0 -z-10 transition-all duration-500 bg-white/40 backdrop-blur-[2px]"></div>
+
+    <header class="w-full pt-8 pb-4 px-6 text-center">
+        <h1 class="text-3xl md:text-4xl font-extrabold tracking-wider text-gray-900 drop-shadow-sm">
+            生活習慣改善
+        </h1>
+        <p id="today-date-display" class="text-sm font-medium text-gray-700 mt-1 drop-shadow-sm"></p>
+    </header>
+
+    <main id="view-home" class="flex-1 max-w-md w-full mx-auto px-6 py-4 flex flex-col justify-center items-center relative">
+        
+        <!-- Points status badge -->
+        <div class="absolute top-0 right-6 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md px-4 py-2 rounded-2xl shadow-lg border border-white/50 flex items-center space-x-2 animate-bounce">
+            <i class="fa-solid fa-coins text-amber-500 text-lg"></i>
+            <span class="text-xs text-gray-500 font-bold">ポイント:</span>
+            <span id="user-points-display" class="text-lg font-black text-amber-600">0</span>
+        </div>
+
+        <div class="w-full grid grid-cols-2 gap-5 my-auto">
+            <!-- Settings Button -->
+            <button onclick="switchView('settings')" class="group relative flex flex-col items-center justify-center p-6 bg-white/70 hover:bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl hover:shadow-2xl border border-white/60 transition-all duration-300 transform hover:-translate-y-1 active:translate-y-0">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white text-2xl shadow-md group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-gear"></i>
+                </div>
+                <span class="mt-4 font-bold text-gray-800 text-base">設定</span>
+                <span class="text-xs text-gray-500 mt-0.5">目標・壁紙・明るさ</span>
+            </button>
+
+            <!-- Evaluation Button -->
+            <button onclick="switchView('evaluation')" class="group relative flex flex-col items-center justify-center p-6 bg-white/70 hover:bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl hover:shadow-2xl border border-white/60 transition-all duration-300 transform hover:-translate-y-1 active:translate-y-0">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center text-white text-2xl shadow-md group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-clipboard-check"></i>
+                </div>
+                <span class="mt-4 font-bold text-gray-800 text-base">評価</span>
+                <span class="text-xs text-gray-500 mt-0.5">今日の振り返り</span>
+            </button>
+
+            <!-- Trends Button -->
+            <button onclick="switchView('trends')" class="group relative flex flex-col items-center justify-center p-6 bg-white/70 hover:bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl hover:shadow-2xl border border-white/60 transition-all duration-300 transform hover:-translate-y-1 active:translate-y-0">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl shadow-md group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-chart-line"></i>
+                </div>
+                <span class="mt-4 font-bold text-gray-800 text-base">推移を見る</span>
+                <span class="text-xs text-gray-500 mt-0.5">スコアの記録</span>
+            </button>
+
+            <!-- Shop Button -->
+            <button onclick="switchView('shop')" class="group relative flex flex-col items-center justify-center p-6 bg-white/70 hover:bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl hover:shadow-2xl border border-white/60 transition-all duration-300 transform hover:-translate-y-1 active:translate-y-0">
+                <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center text-white text-2xl shadow-md group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-gift"></i>
+                </div>
+                <span class="mt-4 font-bold text-gray-800 text-base">ショップ</span>
+                <span class="text-xs text-gray-500 mt-0.5">ご褒美と交換</span>
+            </button>
+        </div>
+    </main>
+
+    <div id="view-settings" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white/90 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl border border-white/60 p-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 class="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+                    <i class="fa-solid fa-gear text-indigo-600"></i> 設定
+                </h2>
+                <button onclick="switchView('home')" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Target Goals Section -->
+            <div class="mb-6">
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">目標設定</h3>
+                <div id="goals-config-list" class="space-y-3 mb-3">
+                    <!-- Dynamic Goal Inputs injected via JS -->
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="new-goal-input" placeholder="新しい目標を追加 (例: 読書を20分する)" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white/80">
+                    <button onclick="addGoal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors flex items-center gap-1">
+                        <i class="fa-solid fa-plus"></i> 追加
+                    </button>
+                </div>
+            </div>
+
+            <!-- Rewards Config Section -->
+            <div class="mb-6 border-t pt-6">
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">ご褒美設定</h3>
+                <div id="rewards-config-list" class="space-y-3 mb-3">
+                    <!-- Dynamic Reward Inputs injected via JS -->
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="new-reward-title" placeholder="ご褒美の内容 (例: ケーキを食べる)" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white/80">
+                    <input type="number" id="new-reward-cost" placeholder="必要pt" min="1" class="w-24 px-3 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm bg-white/80">
+                    <button onclick="addReward()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors">
+                        追加
+                    </button>
+                </div>
+            </div>
+
+            <!-- Wallpaper & Brightness Section -->
+            <div class="border-t pt-6">
+                <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wider mb-3">ホーム画面カスタマイズ</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">壁紙画像URL</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="wallpaper-url-input" placeholder="https://example.com/image.jpg" class="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white/80">
+                            <button onclick="updateWallpaperUrl()" class="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-colors">変更</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">またはローカル画像ファイルを選択</label>
+                        <input type="file" id="wallpaper-file-input" accept="image/*" onchange="handleWallpaperFile(event)" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-semibold text-gray-600">明るさ（オーバーレイ調光）</label>
+                            <span id="brightness-val" class="text-xs font-bold text-indigo-600">40%</span>
+                        </div>
+                        <input type="range" id="brightness-range" min="0" max="85" value="40" oninput="updateBrightness(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 text-center">
+                <button onclick="switchView('home')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-lg transition-colors">
+                    設定を保存して戻る
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-evaluation" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white/90 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl border border-white/60 p-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <div>
+                    <h2 class="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+                        <i class="fa-solid fa-clipboard-check text-emerald-600"></i> 本日の目標評価
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">それぞれの目標の達成度を選んでください</p>
+                </div>
+                <button onclick="switchView('home')" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div id="evaluation-items-container" class="space-y-6 mb-8">
+                <!-- Dynamic goals evaluation list -->
+            </div>
+
+            <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl mb-6 text-center">
+                <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider block mb-1">予測今日のスコア</span>
+                <div class="text-3xl font-black text-emerald-600" id="live-score-preview">0%</div>
+            </div>
+
+            <div class="flex gap-3">
+                <button onclick="switchView('home')" class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-colors">
+                    キャンセル
+                </button>
+                <button onclick="saveTodayEvaluation()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/30 transition-colors">
+                    評価を確定して保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-trends" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white/90 backdrop-blur-xl w-full max-w-xl rounded-3xl shadow-2xl border border-white/60 p-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h2 class="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-line text-blue-600"></i> スコア推移
+                </h2>
+                <button onclick="switchView('home')" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="bg-white/80 p-4 rounded-2xl shadow-sm border border-gray-100 mb-6">
+                <div class="relative w-full h-64">
+                    <canvas id="scoreChart"></canvas>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-blue-50 border border-blue-100 p-4 rounded-2xl text-center">
+                    <span class="text-xs font-bold text-blue-600 block mb-1">最高スコア</span>
+                    <span id="stat-max-score" class="text-2xl font-black text-blue-800">0%</span>
+                </div>
+                <div class="bg-cyan-50 border border-cyan-100 p-4 rounded-2xl text-center">
+                    <span class="text-xs font-bold text-cyan-600 block mb-1">平均スコア</span>
+                    <span id="stat-avg-score" class="text-2xl font-black text-cyan-800">0%</span>
+                </div>
+            </div>
+
+            <div class="text-center">
+                <button onclick="switchView('home')" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-colors">
+                    ホームに戻る
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-shop" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white/90 backdrop-blur-xl w-full max-w-lg rounded-3xl shadow-2xl border border-white/60 p-6 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <div class="flex items-center gap-3">
+                    <h2 class="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+                        <i class="fa-solid fa-gift text-amber-600"></i> ご褒美ショップ
+                    </h2>
+                    <span class="bg-amber-100 text-amber-800 font-bold text-xs px-3 py-1 rounded-full flex items-center gap-1">
+                        <i class="fa-solid fa-coins"></i> <span id="shop-points-badge">0</span> pt
+                    </span>
+                </div>
+                <button onclick="switchView('home')" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <p class="text-xs text-gray-500 mb-4">ポイントを貯めて、自分へのご褒美と交換しよう！高スコアを達成するとたくさんのポイントがもらえます。</p>
+
+            <div id="shop-rewards-list" class="space-y-4 mb-6">
+                <!-- Dynamic reward items injected via JS -->
+            </div>
+
+            <div class="text-center">
+                <button onclick="switchView('home')" class="w-full py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shadow-lg shadow-amber-600/30 transition-colors">
+                    ホームに戻る
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="custom-modal" class="hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div class="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center">
+            <div id="modal-icon" class="w-14 h-14 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
+                <i class="fa-solid fa-award"></i>
+            </div>
+            <h3 id="modal-title" class="text-lg font-extrabold text-gray-900 mb-2">お知らせ</h3>
+            <p id="modal-message" class="text-sm text-gray-600 mb-6 leading-relaxed">メッセージがここに入ります</p>
+            <button onclick="closeModal()" class="w-full py-3 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-bold text-sm shadow-md transition-colors">
+                閉じる
+            </button>
+        </div>
+    </div>
+
+    <footer class="w-full py-4 text-center text-xs text-gray-600 drop-shadow-sm">
+        生活習慣改善アプリ &copy; 2026
+    </footer>
+
+    <script>
+        // Default app state data
+        let appData = {
+            goals: [
+                { id: 1, title: '21:30までに寝る' },
+                { id: 2, title: '勉強を30分する' },
+                { id: 3, title: '朝起きてコップ一杯の水を飲む' }
+            ],
+            rewards: [
+                { id: 1, title: 'お気に入りのケーキを食べる', cost: 5 },
+                { id: 2, title: '好きな映画を1本見る', cost: 8 },
+                { id: 3, title: 'ちょっと豪華なランチ', cost: 12 }
+            ],
+            points: 0,
+            history: {}, // Format: 'YYYY-MM-DD': { scores: {goalId: scoreValue}, totalScore: 85 }
+            wallpaper: 'img/wallpaper.jpg',
+            brightness: 40
+        };
+
+        let currentEvalState = {}; // Temp store for today's evaluation
+        let scoreChartInstance = null;
+
+        // Initialize App on load
+        window.onload = function() {
+            loadFromLocalStorage();
+            updateDateDisplay();
+            renderGoalsConfig();
+            renderRewardsConfig();
+            renderShopRewards();
+            renderEvaluationForm();
+            applyWallpaperAndBrightness();
+        };
+
+        function loadFromLocalStorage() {
+            const saved = localStorage.getItem('seikatsu_habit_app_data');
+            if (saved) {
+                try {
+                    appData = JSON.parse(saved);
+                } catch (e) {
+                    console.error('Failed to parse saved data', e);
+                }
+            }
+        }
+
+        function saveToLocalStorage() {
+            localStorage.setItem('seikatsu_habit_app_data', JSON.stringify(appData));
+            document.getElementById('user-points-display').innerText = appData.points;
+            document.getElementById('shop-points-badge').innerText = appData.points;
+        }
+
+        function updateDateDisplay() {
+            const now = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' };
+            document.getElementById('today-date-display').innerText = now.toLocaleDateString('ja-JP', options);
+        }
+
+        function switchView(viewName) {
+            // Hide all views
+            ['view-settings', 'view-evaluation', 'view-trends', 'view-shop'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+
+            if (viewName !== 'home') {
+                const target = document.getElementById('view-' + viewName);
+                if (target) {
+                    target.classList.remove('hidden');
+                    if (viewName === 'trends') {
+                        renderScoreChart();
+                    }
+                    if (viewName === 'evaluation') {
+                        renderEvaluationForm();
+                    }
+                }
+            }
+            saveToLocalStorage();
+        }
+
+        // --- Wallpaper & Brightness Controls ---
+        function applyWallpaperAndBrightness() {
+            const container = document.getElementById('wallpaper-container');
+            const overlay = document.getElementById('wallpaper-overlay');
+            container.style.backgroundImage = `url('${appData.wallpaper}')`;
+            
+            const b = appData.brightness / 100;
+            overlay.style.backgroundColor = `rgba(255, 255, 255, ${b})`;
+            
+            document.getElementById('brightness-range').value = appData.brightness;
+            document.getElementById('brightness-val').innerText = appData.brightness + '%';
+            document.getElementById('wallpaper-url-input').value = appData.wallpaper;
+            document.getElementById('user-points-display').innerText = appData.points;
+            document.getElementById('shop-points-badge').innerText = appData.points;
+        }
+
+        function updateWallpaperUrl() {
+            const url = document.getElementById('wallpaper-url-input').value.trim();
+            if (url) {
+                appData.wallpaper = url;
+                applyWallpaperAndBrightness();
+                showModal('壁紙変更', '新しい壁紙を設定しました！', 'fa-image');
+            }
+        }
+
+        function handleWallpaperFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    appData.wallpaper = e.target.result;
+                    applyWallpaperAndBrightness();
+                    showModal('壁紙変更', 'デバイスの写真から壁紙を設定しました！', 'fa-image');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function updateBrightness(val) {
+            appData.brightness = parseInt(val);
+            applyWallpaperAndBrightness();
+        }
+
+        // --- Goals Configuration ---
+        function renderGoalsConfig() {
+            const container = document.getElementById('goals-config-list');
+            container.innerHTML = '';
+            appData.goals.forEach((goal, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center gap-2 bg-white/60 p-2.5 rounded-xl border border-gray-200';
+                div.innerHTML = `
+                    <span class="text-xs font-bold text-gray-500 w-6 text-center">${index + 1}</span>
+                    <input type="text" value="${goal.title}" onchange="updateGoalTitle(${goal.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
+                    <button onclick="deleteGoal(${goal.id})" class="text-red-500 hover:text-red-700 px-2 py-1 rounded-lg text-sm transition-colors">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addGoal() {
+            const input = document.getElementById('new-goal-input');
+            const title = input.value.trim();
+            if (title) {
+                const newId = appData.goals.length > 0 ? Math.max(...appData.goals.map(g => g.id)) + 1 : 1;
+                appData.goals.push({ id: newId, title: title });
+                input.value = '';
+                renderGoalsConfig();
+                saveToLocalStorage();
+            }
+        }
+
+        function updateGoalTitle(id, newTitle) {
+            const goal = appData.goals.find(g => g.id === id);
+            if (goal && newTitle.trim()) {
+                goal.title = newTitle.trim();
+                saveToLocalStorage();
+            }
+        }
+
+        function deleteGoal(id) {
+            if (appData.goals.length <= 1) {
+                showModal('エラー', '最低1つの目標が必要です。', 'fa-triangle-exclamation');
+                return;
+            }
+            appData.goals = appData.goals.filter(g => g.id !== id);
+            renderGoalsConfig();
+            saveToLocalStorage();
+        }
+
+        // --- Rewards Configuration ---
+        function renderRewardsConfig() {
+            const container = document.getElementById('rewards-config-list');
+            container.innerHTML = '';
+            appData.rewards.forEach((rew) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center gap-2 bg-white/60 p-2.5 rounded-xl border border-gray-200';
+                div.innerHTML = `
+                    <input type="text" value="${rew.title}" onchange="updateRewardTitle(${rew.id}, this.value)" class="flex-1 bg-transparent border-none text-sm font-medium text-gray-800 focus:outline-none">
+                    <input type="number" value="${rew.cost}" min="1" onchange="updateRewardCost(${rew.id}, this.value)" class="w-16 bg-white/80 border border-gray-300 rounded-lg px-2 py-1 text-sm text-center font-bold text-amber-600 focus:outline-none">
+                    <span class="text-xs text-gray-500 font-bold">pt</span>
+                    <button onclick="deleteReward(${rew.id})" class="text-red-500 hover:text-red-700 px-2 py-1 rounded-lg text-sm transition-colors">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addReward() {
+            const titleInput = document.getElementById('new-reward-title');
+            const costInput = document.getElementById('new-reward-cost');
+            const title = titleInput.value.trim();
+            const cost = parseInt(costInput.value);
+            if (title && cost > 0) {
+                const newId = appData.rewards.length > 0 ? Math.max(...appData.rewards.map(r => r.id)) + 1 : 1;
+                appData.rewards.push({ id: newId, title: title, cost: cost });
+                titleInput.value = '';
+                costInput.value = '';
+                renderRewardsConfig();
+                renderShopRewards();
+                saveToLocalStorage();
+            }
+        }
+
+        function updateRewardTitle(id, val) {
+            const r = appData.rewards.find(item => item.id === id);
+            if (r && val.trim()) { r.title = val.trim(); saveToLocalStorage(); renderShopRewards(); }
+        }
+
+        function updateRewardCost(id, val) {
+            const cost = parseInt(val);
+            const r = appData.rewards.find(item => item.id === id);
+            if (r && cost > 0) { r.cost = cost; saveToLocalStorage(); renderShopRewards(); }
+        }
+
+        function deleteReward(id) {
+            appData.rewards = appData.rewards.filter(r => r.id !== id);
+            renderRewardsConfig();
+            renderShopRewards();
+            saveToLocalStorage();
+        }
+
+        // --- Evaluation Logic (3-stage rating) ---
+        // Score values:
+        // 1. 完了させられた (時間通りにできた) = 100%
+        // 2. 手をつけられた (30分以上の遅れ) = 50%
+        // 3. 全く手をつけていない (1時間以上の遅れ) = 0%
+        function renderEvaluationForm() {
+            const container = document.getElementById('evaluation-items-container');
+            container.innerHTML = '';
+            
+            const todayKey = getTodayKey();
+            const existingScores = appData.history[todayKey]?.scores || {};
+
+            appData.goals.forEach(goal => {
+                if (currentEvalState[goal.id] === undefined) {
+                    currentEvalState[goal.id] = existingScores[goal.id] !== undefined ? existingScores[goal.id] : 100; // default 完了
+                }
+
+                const div = document.createElement('div');
+                div.className = 'bg-white/80 p-4 rounded-2xl border border-gray-200 shadow-sm';
+                div.innerHTML = `
+                    <h4 class="font-bold text-gray-800 text-sm mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-bullseye text-indigo-500"></i> ${goal.title}
+                    </h4>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button type="button" onclick="setGoalScore(${goal.id}, 100, this)" class="eval-btn-${goal.id} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${currentEvalState[goal.id] === 100 ? 'bg-emerald-600 text-white border-emerald-600 shadow-md' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}">
+                            完了 (時間通り)
+                        </button>
+                        <button type="button" onclick="setGoalScore(${goal.id}, 50, this)" class="eval-btn-${goal.id} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${currentEvalState[goal.id] === 50 ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}">
+                            手をついた (+30分遅)
+                        </button>
+                        <button type="button" onclick="setGoalScore(${goal.id}, 0, this)" class="eval-btn-${goal.id} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${currentEvalState[goal.id] === 0 ? 'bg-rose-600 text-white border-rose-600 shadow-md' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'}">
+                            未着手 (+1h遅)
+                        </button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+            updateLiveScorePreview();
+        }
+
+        function setGoalScore(goalId, scoreValue, btnElement) {
+            currentEvalState[goalId] = scoreValue;
+            // Update button styles in group
+            const groupButtons = document.querySelectorAll(`.eval-btn-${goalId}`);
+            groupButtons.forEach(btn => {
+                btn.className = `eval-btn-${goalId} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100`;
+            });
+            if (scoreValue === 100) {
+                btnElement.className = `eval-btn-${goalId} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all bg-emerald-600 text-white border-emerald-600 shadow-md`;
+            } else if (scoreValue === 50) {
+                btnElement.className = `eval-btn-${goalId} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all bg-amber-500 text-white border-amber-500 shadow-md`;
+            } else {
+                btnElement.className = `eval-btn-${goalId} py-2.5 px-2 rounded-xl text-xs font-bold border transition-all bg-rose-600 text-white border-rose-600 shadow-md`;
+            }
+            updateLiveScorePreview();
+        }
+
+        function calculateCurrentAverageScore() {
+            const goalIds = appData.goals.map(g => g.id);
+            if (goalIds.length === 0) return 0;
+            let sum = 0;
+            goalIds.forEach(id => {
+                sum += (currentEvalState[id] !== undefined ? currentEvalState[id] : 100);
+            });
+            return Math.round(sum / goalIds.length);
+        }
+
+        function updateLiveScorePreview() {
+            const avg = calculateCurrentAverageScore();
+            document.getElementById('live-score-preview').innerText = avg + '%';
+        }
+
+        function getTodayKey() {
+            const d = new Date();
+            return d.toISOString().split('T')[0];
+        }
+
+        function saveTodayEvaluation() {
+            const todayKey = getTodayKey();
+            const finalScore = calculateCurrentAverageScore();
+
+            // Check if already evaluated today to avoid duplicate point rewarding
+            const isFirstEvaluationToday = !appData.history[todayKey];
+
+            appData.history[todayKey] = {
+                scores: { ...currentEvalState },
+                totalScore: finalScore
+            };
+
+            // Calculate points earned:
+            // 総合スコアが、最高スコアなら3ポイント、90%以上なら2ポイント、80%以上なら1ポイント
+            let earnedPoints = 0;
+            let existingScoresArray = Object.values(appData.history).map(h => h.totalScore);
+            // remove today's new score for max comparison
+            const pastScores = existingScoresArray.filter((_, idx, arr) => idx < arr.length - 1);
+            const maxPastScore = pastScores.length > 0 ? Math.max(...pastScores) : 0;
+
+            let isNewMax = pastScores.length === 0 || finalScore > maxPastScore;
+
+            if (isNewMax && finalScore > 0) {
+                earnedPoints = 3;
+            } else if (finalScore >= 90) {
+                earnedPoints = 2;
+            } else if (finalScore >= 80) {
+                earnedPoints = 1;
+            }
+
+            if (earnedPoints > 0 && isFirstEvaluationToday) {
+                appData.points += earnedPoints;
+                showModal('おめでとうございます！', `本日のスコアは ${finalScore}% です！\nご褒美ポイントを ${earnedPoints} ポイント獲得しました！`, 'fa-coins');
+            } else {
+                showModal('保存完了', `本日のスコア (${finalScore}%) を保存しました！`, 'fa-circle-check');
+            }
+
+            saveToLocalStorage();
+            switchView('home');
+        }
+
+        // --- Trends Chart rendering ---
+        function renderScoreChart() {
+            const dates = Object.keys(appData.history).sort();
+            const scores = dates.map(d => appData.history[d].totalScore);
+
+            // Compute stats
+            if (scores.length > 0) {
+                document.getElementById('stat-max-score').innerText = Math.max(...scores) + '%';
+                const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+                document.getElementById('stat-avg-score').innerText = avg + '%';
+            } else {
+                document.getElementById('stat-max-score').innerText = '0%';
+                document.getElementById('stat-avg-score').innerText = '0%';
+            }
+
+            const ctx = document.getElementById('scoreChart').getContext('2d');
+            if (scoreChartInstance) {
+                scoreChartInstance.destroy();
+            }
+
+            scoreChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates.map(d => d.slice(5)), // MM-DD format
+                    datasets: [{
+                        label: '総合スコア (%)',
+                        data: scores,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 3,
+                        fill: true,
+                        tension: 0.3,
+                        pointBackgroundColor: '#3b82f6',
+                        pointRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // --- Reward Shop Logic ---
+        function renderShopRewards() {
+            const container = document.getElementById('shop-rewards-list');
+            container.innerHTML = '';
+
+            appData.rewards.forEach(rew => {
+                const canAfford = appData.points >= rew.cost;
+                const div = document.createElement('div');
+                div.className = 'bg-white/80 p-4 rounded-2xl border border-gray-200 shadow-sm flex items-center justify-between';
+                div.innerHTML = `
+                    <div>
+                        <h4 class="font-bold text-gray-800 text-sm mb-1">${rew.title}</h4>
+                        <span class="text-xs font-bold text-amber-600 flex items-center gap-1">
+                            <i class="fa-solid fa-coins"></i> 必要ポイント: ${rew.cost} pt
+                        </span>
+                    </div>
+                    <button onclick="exchangeReward(${rew.id})" ${canAfford ? '' : 'disabled'} class="px-4 py-2 rounded-xl text-xs font-bold transition-all ${canAfford ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/20 cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">
+                        ${canAfford ? 'ご褒美と交換' : 'ポイント不足'}
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function exchangeReward(rewardId) {
+            const reward = appData.rewards.find(r => r.id === rewardId);
+            if (reward && appData.points >= reward.cost) {
+                appData.points -= reward.cost;
+                saveToLocalStorage();
+                renderShopRewards();
+                showModal('ご褒美ゲット！', `「${reward.title}」と交換しました！自分にご褒美をあげましょう！`, 'fa-gift');
+            }
+        }
+
+        // --- Custom Modal Helper ---
+        function showModal(title, message, iconClass) {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            document.getElementById('modal-icon').innerHTML = `<i class="fa-solid ${iconClass}"></i>`;
+            document.getElementById('custom-modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('custom-modal').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>

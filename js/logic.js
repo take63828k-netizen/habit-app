@@ -2,6 +2,7 @@
 (function (root) {
   const STORAGE_KEY = 'seikatsu_habit_app_data';
   const APP_ID = 'seikatsu-habit';
+  const BACKUP_VERSION = 1; // バックアップ形式の版。形式を変えるときだけ上げる
 
   function defaults() {
     return {
@@ -164,18 +165,20 @@
   }
 
   function exportData(data) {
-    return JSON.stringify({ app: APP_ID, version: 1, exportedAt: new Date().toISOString(), data: data }, null, 2);
+    return JSON.stringify({ app: APP_ID, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), data: data }, null, 2);
   }
 
   function importData(text) {
     let obj;
     try { obj = JSON.parse(text); } catch (e) { return { data: null, error: 'ファイルを読めません' }; }
     if (!obj || obj.app !== APP_ID) return { data: null, error: 'このアプリのバックアップではありません' };
+    if (!isInt(obj.version) || obj.version < 1) return { data: null, error: 'バックアップの版が分かりません' };
+    if (obj.version > BACKUP_VERSION) return { data: null, error: 'より新しい版のバックアップです。アプリを更新してから読み込んでください' };
     return normalize(obj.data);
   }
 
   const api = {
-    STORAGE_KEY: STORAGE_KEY, defaults: defaults, todayKey: todayKey, escapeHtml: escapeHtml,
+    STORAGE_KEY: STORAGE_KEY, BACKUP_VERSION: BACKUP_VERSION, defaults: defaults, todayKey: todayKey, escapeHtml: escapeHtml,
     calcEarnedPoints: calcEarnedPoints, parseSaved: parseSaved, exportData: exportData, importData: importData,
     safeWallpaper: safeWallpaper, exchangeReward: exchangeReward, needsBackupReminder: needsBackupReminder,
     evalAverage: evalAverage, isIosBrowserTab: isIosBrowserTab,

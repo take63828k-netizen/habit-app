@@ -1,4 +1,4 @@
-const SHELL_CACHE = 'habit-shell-v4'; // index.html などを直したら v2, v3 と上げる
+const SHELL_CACHE = 'habit-shell-v5'; // index.html などを直したら v2, v3 と上げる
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './js/logic.js',
   './vendor/tailwind.js', './vendor/chart.js', './vendor/fa.css',

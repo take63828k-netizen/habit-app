@@ -467,6 +467,13 @@
                 const r = HabitLogic.importData(e.target.result);
                 if (r.error) { showModal('読み込めませんでした', r.error, 'fa-triangle-exclamation'); return; }
                 if (!confirm('いまのデータは、バックアップの内容で置き換わります。よろしいですか？')) return;
+                // 取り消せるよう、置き換える直前のデータを別の名前で端末に残す（最新の1つだけ）
+                try {
+                    localStorage.setItem(HabitLogic.STORAGE_KEY + '_before_import', JSON.stringify(appData));
+                } catch (err) {
+                    showModal('読み込めませんでした', 'いまのデータを退避できなかったため、中止しました（端末の保存容量が足りません）。', 'fa-triangle-exclamation');
+                    return;
+                }
                 appData = r.data;
                 currentEvalState = {};
                 evalStateDate = null;
@@ -474,7 +481,7 @@
                 renderGoalsConfig(); renderRewardsConfig(); renderShopRewards(); renderEvaluationForm();
                 applyWallpaperAndBrightness();
                 refreshBackupUi();
-                showModal('読み込み完了', 'バックアップから復元しました。', 'fa-circle-check');
+                showModal('読み込み完了', 'バックアップから復元しました。読み込む前のデータは、端末の中に1つだけ残してあります。', 'fa-circle-check');
             };
             reader.readAsText(file);
         }

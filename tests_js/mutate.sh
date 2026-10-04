@@ -42,4 +42,8 @@ m eval-round      's/Math.round(sum \/ goalIds.length)/Math.floor(sum \/ goalIds
 m ios-standalone  's/if (standalone) return false;//'
 m ios-ua          's#/iPhone|iPad|iPod/#/iPhone|iPod/#'
 m ios-ipados      's/maxTouchPoints > 1/true/'
+m ver-int         's/!isInt(obj.version) || //'
+m ver-min         's/obj.version < 1/obj.version < 0/'
+m ver-newer       's/obj.version > BACKUP_VERSION/obj.version > 99/'
+m ver-export      's/version: BACKUP_VERSION/version: 2/'
 echo "alive=$alive"

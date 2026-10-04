@@ -95,12 +95,32 @@ function load(frame, url) {
     w.switchView('evaluation');
     check('今日保存済みなら、評価画面は保存した値から始まる', w.document.getElementById('eval-save-btn').disabled === false, 'disabled');
 
+    // 7b. 読み込み: 直前のデータを退避してから置き換える／新しい版は拒否して何も変えない
+    const before = w.eval('appData.points');
+    const imp = JSON.parse(w.HabitLogic.exportData(w.HabitLogic.defaults()));
+    imp.data.points = 77;
+    w.confirm = () => true;
+    const snapKeys = () => Object.keys(localStorage).filter((k) => k.startsWith(KEY + '_before_import'));
+    const readFile = (obj) => new w.File([JSON.stringify(obj)], 'b.json', { type: 'application/json' });
+    const tgt = { files: [readFile(imp)], value: 'x' };
+    w.importBackup({ target: tgt });
+    await until(() => w.eval('appData.points') === 77);
+    check('読み込みで内容が置き換わる', w.eval('appData.points') === 77, 'points=' + w.eval('appData.points'));
+    check('読み込み前のデータが別の名前で退避される', snapKeys().length === 1 && JSON.parse(localStorage.getItem(snapKeys()[0])).points === before, snapKeys().join(',') + ' before=' + before);
+    // 新しい版は、何も変えず、退避も増やさない
+    const newer = JSON.parse(JSON.stringify(imp)); newer.version = 2; newer.data.points = 5;
+    w.importBackup({ target: { files: [readFile(newer)], value: 'x' } });
+    await until(() => w.document.getElementById('modal-message').innerText.includes('新しい版'));
+    check('新しい版のバックアップは拒否され、データは変わらない', w.eval('appData.points') === 77 && snapKeys().length === 1, 'points=' + w.eval('appData.points') + ' snaps=' + snapKeys().length);
+    w.closeModal();
+
     // 8. 想定外のエラーでバナーが出る
     w.dispatchEvent(new w.ErrorEvent('error', { message: 'smoke', error: new Error('smoke') }));
     check('想定外のエラーで案内バナーが出る', !w.document.getElementById('error-banner').classList.contains('hidden'), 'hidden');
   } catch (e) {
     check('スモークテスト自体が最後まで走った', false, String(e && e.stack || e));
   } finally {
+    Object.keys(localStorage).filter((k) => k.startsWith(KEY + '_before_import')).forEach((k) => localStorage.removeItem(k));
     if (saved === null) localStorage.removeItem(KEY); else localStorage.setItem(KEY, saved);
   }
   const failed = results.filter((r) => !r.ok).length;

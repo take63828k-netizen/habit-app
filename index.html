@@ -219,14 +219,15 @@
 
             <div class="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl mb-6 text-center">
                 <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider block mb-1">予測今日のスコア</span>
-                <div class="text-3xl font-black text-emerald-600" id="live-score-preview">0%</div>
+                <div class="text-3xl font-black text-emerald-600" id="live-score-preview">--</div>
+                <p id="eval-hint" class="text-xs text-emerald-800 mt-1">すべての目標を選ぶとスコアが出ます</p>
             </div>
 
             <div class="flex gap-3">
                 <button onclick="switchView('home')" class="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-colors">
                     キャンセル
                 </button>
-                <button onclick="saveTodayEvaluation()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/30 transition-colors">
+                <button id="eval-save-btn" onclick="saveTodayEvaluation()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-lg shadow-emerald-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                     評価を確定して保存
                 </button>
             </div>
@@ -317,9 +318,19 @@
         </div>
     </div>
 
-    <div id="update-banner" class="hidden fixed bottom-4 inset-x-4 z-[60] max-w-md mx-auto bg-gray-900 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3">
-        <span class="text-sm">新しい版があります。</span>
-        <button onclick="location.reload()" class="bg-white text-gray-900 px-4 py-2 rounded-xl font-bold text-sm">再読み込み</button>
+    <div id="banners" class="fixed bottom-4 inset-x-4 z-[60] max-w-md mx-auto space-y-2">
+        <div id="update-banner" class="hidden bg-gray-900 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3">
+            <span class="text-sm">新しい版があります。</span>
+            <button onclick="location.reload()" class="bg-white text-gray-900 px-4 py-2 rounded-xl font-bold text-sm">再読み込み</button>
+        </div>
+        <div id="ios-hint" class="hidden bg-indigo-900 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3">
+            <span class="text-xs leading-relaxed">ホーム画面に追加すると、データが消えにくくなります（共有ボタン →「ホーム画面に追加」）。</span>
+            <button onclick="dismissIosHint()" class="bg-white text-indigo-900 px-3 py-2 rounded-xl font-bold text-xs shrink-0">閉じる</button>
+        </div>
+        <div id="error-banner" class="hidden bg-rose-800 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between gap-3">
+            <span class="text-xs leading-relaxed">問題が起きました。念のため、設定からバックアップを書き出してください。</span>
+            <button onclick="switchView('settings'); this.parentElement.classList.add('hidden')" class="bg-white text-rose-800 px-3 py-2 rounded-xl font-bold text-xs shrink-0">設定へ</button>
+        </div>
     </div>
 
     <footer class="w-full py-4 text-center text-xs text-gray-600 drop-shadow-sm">
@@ -347,6 +358,7 @@
             renderEvaluationForm();
             applyWallpaperAndBrightness();
             refreshBackupUi();
+            maybeShowIosHint();
             if (loadMsg) showModal('保存データについて', loadMsg, 'fa-triangle-exclamation');
             // 保存領域をブラウザに消されにくくする（許可されなくても動く）
             try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
@@ -362,6 +374,26 @@
                 if (window.__swReg) window.__swReg.update().catch(function () {});
             }
         });
+
+        // 想定外のエラーを画面に知らせる（コンソールにしか出ないと、利用者は原因が分からない）
+        function showErrorBanner() {
+            document.getElementById('error-banner').classList.remove('hidden');
+        }
+        window.addEventListener('error', function (e) { console.error('Unhandled error', e.error || e.message); showErrorBanner(); });
+        window.addEventListener('unhandledrejection', function (e) { console.error('Unhandled rejection', e.reason); showErrorBanner(); });
+
+        // iPhone・iPad のブラウザのタブで開いているときだけ、1回だけ案内する
+        const IOS_HINT_KEY = 'seikatsu_ios_hint_seen';
+        function maybeShowIosHint() {
+            const standalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+            if (!HabitLogic.isIosBrowserTab(navigator.userAgent, standalone, navigator.maxTouchPoints || 0)) return;
+            try { if (localStorage.getItem(IOS_HINT_KEY)) return; } catch (e) {}
+            document.getElementById('ios-hint').classList.remove('hidden');
+        }
+        function dismissIosHint() {
+            document.getElementById('ios-hint').classList.add('hidden');
+            try { localStorage.setItem(IOS_HINT_KEY, '1'); } catch (e) {}
+        }
 
         function refreshBackupUi() {
             const last = appData.lastBackup;
@@ -665,8 +697,9 @@
             const existingScores = appData.history[todayKey]?.scores || {};
 
             appData.goals.forEach(goal => {
-                if (currentEvalState[goal.id] === undefined) {
-                    currentEvalState[goal.id] = existingScores[goal.id] !== undefined ? existingScores[goal.id] : 100; // default 完了
+                // 初期値は未選択。今日すでに保存した評価があるときだけ、その値から始める
+                if (currentEvalState[goal.id] === undefined && existingScores[goal.id] !== undefined) {
+                    currentEvalState[goal.id] = existingScores[goal.id];
                 }
 
                 const div = document.createElement('div');
@@ -709,19 +742,16 @@
             updateLiveScorePreview();
         }
 
+        // 全目標が選ばれていなければ null
         function calculateCurrentAverageScore() {
-            const goalIds = appData.goals.map(g => g.id);
-            if (goalIds.length === 0) return 0;
-            let sum = 0;
-            goalIds.forEach(id => {
-                sum += (currentEvalState[id] !== undefined ? currentEvalState[id] : 100);
-            });
-            return Math.round(sum / goalIds.length);
+            return HabitLogic.evalAverage(appData.goals.map(g => g.id), currentEvalState);
         }
 
         function updateLiveScorePreview() {
             const avg = calculateCurrentAverageScore();
-            document.getElementById('live-score-preview').innerText = avg + '%';
+            document.getElementById('live-score-preview').innerText = avg === null ? '--' : avg + '%';
+            document.getElementById('eval-save-btn').disabled = avg === null;
+            document.getElementById('eval-hint').classList.toggle('hidden', avg !== null);
         }
 
         function getTodayKey() {
@@ -731,13 +761,17 @@
         function saveTodayEvaluation() {
             const todayKey = getTodayKey();
             const finalScore = calculateCurrentAverageScore();
+            if (finalScore === null) {
+                showModal('未選択の目標があります', 'すべての目標について、完了・手をついた・未着手のどれかを選んでください。', 'fa-triangle-exclamation');
+                return;
+            }
 
             // Check if already evaluated today to avoid duplicate point rewarding
             const isFirstEvaluationToday = !appData.history[todayKey];
 
             // 今の目標に残っているものだけを記録する（削除済みの目標を残さない）
             const scores = {};
-            appData.goals.forEach(g => { scores[g.id] = currentEvalState[g.id] !== undefined ? currentEvalState[g.id] : 100; });
+            appData.goals.forEach(g => { scores[g.id] = currentEvalState[g.id]; });
             appData.history[todayKey] = { scores: scores, totalScore: finalScore };
 
             // 獲得ポイント: 過去最高を更新で3pt、90%以上で2pt、80%以上で1pt（今日の記録を除いて比べる）

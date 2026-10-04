@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>smoke: running</title>
+<style>body{font-family:sans-serif;padding:1rem} .ok{color:#080} .ng{color:#c00;font-weight:bold} iframe{width:420px;height:300px;border:1px solid #ccc}</style>
+</head>
+<body>
+<h1>スモークテスト</h1>
+<p>開く → 評価（未選択→保存不可→選択→保存）→ ポイント → 交換 → 書き出し → 再読み込みで保持、を通します。</p>
+<pre id="log"></pre>
+<iframe id="app"></iframe>
+<script>
+// 公開URLで実行すると、実際の利用データを消してしまう。ローカルでしか動かさない。
+if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
+  document.title = 'smoke: REFUSED';
+  document.getElementById('log').textContent = 'localhost 以外では実行しません（利用データを消すため）。';
+  throw new Error('refused');
+}
+const KEY = 'seikatsu_habit_app_data';
+const logEl = document.getElementById('log');
+const results = [];
+function check(name, cond, detail) {
+  results.push({ name, ok: !!cond });
+  logEl.insertAdjacentHTML('beforeend', '<span class="' + (cond ? 'ok' : 'ng') + '">' + (cond ? 'PASS ' : 'FAIL ') + name + (cond ? '' : ' :: ' + detail) + '</span>\n');
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function until(fn, ms = 4000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { try { if (fn()) return true; } catch (e) {} await sleep(50); }
+  return false;
+}
+function load(frame, url) {
+  return new Promise((res) => { frame.onload = () => res(); frame.src = url; });
+}
+
+(async () => {
+  const saved = localStorage.getItem(KEY);   // 開発中のデータを退避
+  try {
+    localStorage.removeItem(KEY);
+    // 古い保存済みの画面でなく、いまのファイルを試す（localhost のみ）
+    for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    for (const k of await caches.keys()) await caches.delete(k);
+    const frame = document.getElementById('app');
+    await load(frame, '../index.html?smoke=' + Date.now());
+    let w = frame.contentWindow;
+    await until(() => w.document.getElementById('live-score-preview'));
+    const ev = (code) => w.eval(code);
+
+    // 1. 評価画面: 未選択・保存不可
+    w.switchView('evaluation');
+    const ids = ev('appData.goals.map(g => g.id)');
+    const saveBtn = w.document.getElementById('eval-save-btn');
+    check('評価の初期値は未選択（スコア表示が --）', w.document.getElementById('live-score-preview').innerText === '--', w.document.getElementById('live-score-preview').innerText);
+    check('未選択のあいだ保存ボタンは押せない', saveBtn.disabled === true, 'disabled=' + saveBtn.disabled);
+
+    // 2. 1つ選び残して、まだ保存不可
+    ids.slice(0, -1).forEach((id) => w.document.querySelector('.eval-btn-' + id).click());
+    check('1つ未選択ならまだ保存不可', saveBtn.disabled === true, 'disabled=' + saveBtn.disabled);
+
+    // 3. 全部選んで保存可能に
+    w.document.querySelector('.eval-btn-' + ids[ids.length - 1]).click();
+    check('全て選ぶと保存ボタンが有効', saveBtn.disabled === false, 'disabled=' + saveBtn.disabled);
+    check('全て「完了」ならスコア 100%', w.document.getElementById('live-score-preview').innerText === '100%', w.document.getElementById('live-score-preview').innerText);
+
+    // 4. 保存 → 履歴とポイント（初回の最高更新で 3pt）
+    saveBtn.click();
+    const today = w.HabitLogic.todayKey();
+    check('今日の履歴ができる', ev('!!appData.history["' + today + '"]'), 'no history');
+    check('初回の保存で 3pt', ev('appData.points') === 3, 'points=' + ev('appData.points'));
+    check('保存データが localStorage にある', !!localStorage.getItem(KEY), 'empty');
+    w.closeModal();
+
+    // 5. 交換（確認ダイアログ「はい」）
+    ev('appData.points = 10; saveToLocalStorage();');
+    w.confirm = () => true;
+    w.exchangeReward(1);
+    check('交換でポイントが 5 引かれる', ev('appData.points') === 5, 'points=' + ev('appData.points'));
+    check('交換履歴に載る', w.document.getElementById('exchange-history-list').innerText.includes('5 pt'), w.document.getElementById('exchange-history-list').innerText);
+    w.closeModal();
+
+    // 6. 書き出し
+    let downloaded = '';
+    w.HTMLAnchorElement.prototype.click = function () { downloaded = this.download; };
+    w.exportBackup();
+    check('書き出しのファイル名に日付が入る', downloaded === 'seikatsu-habit-backup-' + today + '.json', downloaded);
+    check('書き出しで最終バックアップ日が今日になる', ev('appData.lastBackup') === today, ev('appData.lastBackup'));
+
+    // 7. 再読み込みしても保持される
+    await load(frame, '../index.html?smoke=' + Date.now());
+    w = frame.contentWindow;
+    await until(() => w.document.getElementById('live-score-preview'));
+    check('再読み込み後もポイントが保持される', w.eval('appData.points') === 5, 'points=' + w.eval('appData.points'));
+    check('再読み込み後も今日の履歴が保持される', w.eval('!!appData.history["' + today + '"]'), 'no history');
+    w.switchView('evaluation');
+    check('今日保存済みなら、評価画面は保存した値から始まる', w.document.getElementById('eval-save-btn').disabled === false, 'disabled');
+
+    // 8. 想定外のエラーでバナーが出る
+    w.dispatchEvent(new w.ErrorEvent('error', { message: 'smoke', error: new Error('smoke') }));
+    check('想定外のエラーで案内バナーが出る', !w.document.getElementById('error-banner').classList.contains('hidden'), 'hidden');
+  } catch (e) {
+    check('スモークテスト自体が最後まで走った', false, String(e && e.stack || e));
+  } finally {
+    if (saved === null) localStorage.removeItem(KEY); else localStorage.setItem(KEY, saved);
+  }
+  const failed = results.filter((r) => !r.ok).length;
+  document.title = 'smoke: ' + (failed === 0 ? 'PASS ' + results.length : 'FAIL ' + failed + '/' + results.length);
+  logEl.insertAdjacentText('beforeend', '\n' + document.title);
+})();
+</script>
+</body>
+</html>

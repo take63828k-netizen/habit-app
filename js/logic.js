@@ -44,12 +44,33 @@
       .filter((k) => k !== today)
       .map((k) => history[k].totalScore);
     const maxPast = past.length > 0 ? Math.max.apply(null, past) : 0;
-    const isNewMax = (past.length === 0 || finalScore > maxPast) && finalScore > 0;
+    // 過去最高と並んだ日も「最高」とみなす（100%を取った後も3ptを狙える）
+    const isNewMax = (past.length === 0 || finalScore >= maxPast) && finalScore > 0;
     let earned = 0;
     if (isNewMax) earned = 3;
     else if (finalScore >= 90) earned = 2;
     else if (finalScore >= 80) earned = 1;
     return { earned: earned, isNewMax: isNewMax };
+  }
+
+  // 今日の評価の平均。全目標が 100・50・0 のどれかで選ばれているときだけ値を返し、それ以外は null
+  function evalAverage(goalIds, state) {
+    if (goalIds.length === 0) return null;
+    let sum = 0;
+    for (const id of goalIds) {
+      const v = state[id];
+      if (v !== 100 && v !== 50 && v !== 0) return null;
+      sum += v;
+    }
+    return Math.round(sum / goalIds.length);
+  }
+
+  // iPhone・iPad のブラウザのタブか（ホーム画面から開いていなければ true）
+  // iPadOS は Mac の UA を名乗るため、タッチ点が複数あれば iPad とみなす
+  function isIosBrowserTab(ua, standalone, maxTouchPoints) {
+    if (standalone) return false;
+    if (/iPhone|iPad|iPod/.test(ua)) return true;
+    return /Macintosh/.test(ua) && maxTouchPoints > 1;
   }
 
   // 欠けた項目は初期値で補う。型が違う・壊れているときは黙って捨てず error を返す
@@ -157,6 +178,7 @@
     STORAGE_KEY: STORAGE_KEY, defaults: defaults, todayKey: todayKey, escapeHtml: escapeHtml,
     calcEarnedPoints: calcEarnedPoints, parseSaved: parseSaved, exportData: exportData, importData: importData,
     safeWallpaper: safeWallpaper, exchangeReward: exchangeReward, needsBackupReminder: needsBackupReminder,
+    evalAverage: evalAverage, isIosBrowserTab: isIosBrowserTab,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.HabitLogic = api;
